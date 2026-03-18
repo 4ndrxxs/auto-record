@@ -155,6 +155,18 @@ fun RecordingsScreen(viewModel: RecordingsViewModel = viewModel()) {
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
+                                    // 공유 버튼
+                                    IconButton(
+                                        onClick = { viewModel.shareFile(recording.file) },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Share,
+                                            contentDescription = "공유",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
                                     // 삭제 버튼
                                     IconButton(
                                         onClick = { deleteTarget = recording },

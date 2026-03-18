@@ -5,6 +5,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,15 +20,17 @@ import com.jw.autorecord.ui.calendar.CalendarScreen
 import com.jw.autorecord.ui.home.HomeScreen
 import com.jw.autorecord.ui.recordings.RecordingsScreen
 import com.jw.autorecord.ui.schedule.ScheduleScreen
+import com.jw.autorecord.ui.settings.SettingsScreen
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
     data object Home : Screen("home", "홈", Icons.Default.Home)
     data object Schedule : Screen("schedule", "시간표", Icons.Default.TableChart)
     data object Calendar : Screen("calendar", "달력", Icons.Default.CalendarMonth)
     data object Recordings : Screen("recordings", "녹음", Icons.Default.LibraryMusic)
+    data object Settings : Screen("settings", "설정", Icons.Default.Settings)
 }
 
-val screens = listOf(Screen.Home, Screen.Schedule, Screen.Calendar, Screen.Recordings)
+val screens = listOf(Screen.Home, Screen.Schedule, Screen.Calendar, Screen.Recordings, Screen.Settings)
 
 @Composable
 fun AppNavigation() {
@@ -66,6 +69,7 @@ fun AppNavigation() {
             composable(Screen.Schedule.route) { ScheduleScreen() }
             composable(Screen.Calendar.route) { CalendarScreen() }
             composable(Screen.Recordings.route) { RecordingsScreen() }
+            composable(Screen.Settings.route) { SettingsScreen() }
         }
     }
 }

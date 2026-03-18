@@ -1,10 +1,12 @@
 package com.jw.autorecord.ui.recordings
 
 import android.app.Application
+import android.content.Intent
 import android.media.MediaPlayer
 import android.media.PlaybackParams
 import android.os.Handler
 import android.os.Looper
+import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import com.jw.autorecord.util.StoragePaths
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -201,6 +203,24 @@ class RecordingsViewModel(app: Application) : AndroidViewModel(app) {
         }
         file.delete()
         _selectedDate.value?.let { loadFiles(it) }
+    }
+
+    /** 녹음 파일 공유 */
+    fun shareFile(file: File) {
+        val app = getApplication<Application>()
+        try {
+            val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "audio/mp4"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, file.nameWithoutExtension)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            app.startActivity(Intent.createChooser(intent, "녹음 파일 공유").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+        } catch (_: Exception) { }
     }
 
     /** 달력용: 녹음이 있는 날짜 목록 반환 */

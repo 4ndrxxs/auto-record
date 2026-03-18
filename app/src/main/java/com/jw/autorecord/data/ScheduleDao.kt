@@ -14,6 +14,9 @@ interface ScheduleDao {
     @Query("SELECT * FROM schedules ORDER BY dayOfWeek, period")
     fun getAllSchedules(): Flow<List<Schedule>>
 
+    @Query("SELECT * FROM schedules ORDER BY dayOfWeek, period")
+    suspend fun getAllSchedulesOnce(): List<Schedule>
+
     @Query("SELECT * FROM schedules WHERE dayOfWeek = :day AND period = :period LIMIT 1")
     suspend fun getSchedule(day: Int, period: Int): Schedule?
 

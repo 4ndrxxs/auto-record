@@ -39,6 +39,10 @@ interface ScheduleOverrideDao {
     @Query("DELETE FROM schedule_overrides WHERE date = :date")
     suspend fun deleteAllByDate(date: String)
 
+    /** 모든 override 조회 (백업용) */
+    @Query("SELECT * FROM schedule_overrides ORDER BY date, period")
+    suspend fun getAllOverridesOnce(): List<ScheduleOverride>
+
     /** 지난 override 정리 (date < 기준일) */
     @Query("DELETE FROM schedule_overrides WHERE date < :beforeDate")
     suspend fun deleteOlderThan(beforeDate: String)

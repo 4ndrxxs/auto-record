@@ -1,6 +1,6 @@
 {
-  "versionCode": 11,
-  "versionName": "1.9.1",
-  "apkUrl": "https://github.com/4ndrxxs/auto-record/releases/download/v1.9.1/AutoRecord-1.9.1.apk",
-  "changelog": "APK 서명 추가 (설치 오류 수정)\nOTA 업데이트 시 자동 설치 화면 실행\n다운로드 진행 상태 표시\n시간표 변경 기능 포함"
+  "versionCode": 12,
+  "versionName": "1.10.0",
+  "apkUrl": "https://github.com/4ndrxxs/auto-record/releases/download/v1.10.0/AutoRecord-1.10.0.apk",
+  "changelog": "설정 탭 추가\n시간표 백업/복원 (JSON)\n녹음 시간 설정 (30~90분)\n오디오 품질 설정 (비트레이트/샘플레이트)\n저장소 정보 표시\n녹음 파일 공유 기능\n전체 녹음 삭제 기능\n앱 정보 표시"
 }

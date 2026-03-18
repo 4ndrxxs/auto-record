@@ -235,7 +235,10 @@ class ScheduleMonitorService : Service() {
 
         val dateStr = dateFormat.format(now)
         val dateDirStr = dateDirFormat.format(now)
-        val durationMin = 50
+
+        // ★ 설정에서 녹음 시간 읽기 (기본 50분)
+        val prefs = getSharedPreferences("prefs", 0)
+        val durationMin = prefs.getInt("recording_duration", 50)
 
         val baseDir = StoragePaths.getDateDir(this, dateDirStr)
         val safeSubject = StoragePaths.sanitizeFileName(schedule.subject)
@@ -244,12 +247,16 @@ class ScheduleMonitorService : Service() {
         outputFile = File(baseDir, fileName)
 
         try {
+            // ★ 설정에서 오디오 품질 읽기
+            val bitrate = prefs.getInt("audio_bitrate", 128000)
+            val sampleRate = prefs.getInt("audio_sample_rate", 44100)
+
             mediaRecorder = MediaRecorder(this).apply {
                 setAudioSource(MediaRecorder.AudioSource.MIC)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                setAudioEncodingBitRate(128000)
-                setAudioSamplingRate(44100)
+                setAudioEncodingBitRate(bitrate)
+                setAudioSamplingRate(sampleRate)
                 setOutputFile(outputFile!!.absolutePath)
                 setOnErrorListener { _, what, extra ->
                     Log.e(TAG, "MediaRecorder error: what=$what extra=$extra")

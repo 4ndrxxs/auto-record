@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.jw.autorecord.AutoRecordApp
 import com.jw.autorecord.data.Schedule
 import com.jw.autorecord.service.AlarmScheduler
+import com.jw.autorecord.service.RecordingState
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.io.File
@@ -30,8 +31,25 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     )
     val masterEnabled: StateFlow<Boolean> = _masterEnabled
 
-    private val _recordingPeriod = MutableStateFlow(-1)
-    val recordingPeriod: StateFlow<Int> = _recordingPeriod
+    /** 실시간 녹음 상태 (RecordingService가 매초 업데이트) */
+    val recordingState: StateFlow<RecordingState.State> = RecordingState.state
+
+    /** 오늘 녹음된 파일 목록 (주기적으로 갱신) */
+    private val _recordedFiles = MutableStateFlow<List<String>>(emptyList())
+    val recordedFiles: StateFlow<List<String>> = _recordedFiles.asStateFlow()
+
+    init {
+        refreshRecordedFiles()
+        // 녹음 상태가 변할 때마다 파일 목록도 갱신
+        viewModelScope.launch {
+            RecordingState.state.collect { state ->
+                if (!state.isRecording && state.period == -1) {
+                    // 녹음이 끝났을 때 파일 목록 새로고침
+                    refreshRecordedFiles()
+                }
+            }
+        }
+    }
 
     fun setMasterEnabled(enabled: Boolean) {
         _masterEnabled.value = enabled
@@ -44,8 +62,15 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun setRecordingPeriod(period: Int) {
-        _recordingPeriod.value = period
+    fun refreshRecordedFiles() {
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.KOREA)
+        val todayDir = File(
+            Environment.getExternalStorageDirectory(),
+            "AutoRecord/${dateFormat.format(Date())}"
+        )
+        _recordedFiles.value = if (todayDir.exists()) {
+            todayDir.listFiles()?.map { it.name }?.sorted() ?: emptyList()
+        } else emptyList()
     }
 
     private fun rescheduleToday() {
@@ -53,16 +78,5 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             val schedules = dao.getSchedulesByDayOnce(todayDayOfWeek)
             AlarmScheduler.scheduleTodayAlarms(getApplication(), schedules)
         }
-    }
-
-    fun getRecordedFiles(): List<String> {
-        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.KOREA)
-        val todayDir = File(
-            Environment.getExternalStorageDirectory(),
-            "AutoRecord/${dateFormat.format(Date())}"
-        )
-        return if (todayDir.exists()) {
-            todayDir.listFiles()?.map { it.name }?.sorted() ?: emptyList()
-        } else emptyList()
     }
 }

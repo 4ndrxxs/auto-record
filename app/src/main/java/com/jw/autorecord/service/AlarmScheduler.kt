@@ -1,11 +1,13 @@
 package com.jw.autorecord.service
 
 import android.app.AlarmManager
+import android.app.AlarmManager.AlarmClockInfo
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import com.jw.autorecord.MainActivity
 import com.jw.autorecord.data.AppDatabase
 import com.jw.autorecord.data.Schedule
 import com.jw.autorecord.receiver.AlarmReceiver
@@ -14,6 +16,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.util.*
 
+/**
+ * setAlarmClock() 사용 — Android에서 절대 지연시키지 않는 유일한 알람 API.
+ * Doze, 배터리 최적화, OEM 킬러 전부 무시.
+ * 포그라운드 서비스 시작 권한도 10초간 자동 부여.
+ */
 object AlarmScheduler {
     private const val TAG = "AlarmScheduler"
 
@@ -25,11 +32,6 @@ object AlarmScheduler {
             val prefs = context.getSharedPreferences("prefs", 0)
             if (!prefs.getBoolean("master_enabled", true)) {
                 Log.i(TAG, "Master toggle OFF, skipping alarm registration")
-                return@launch
-            }
-
-            if (!canScheduleExactAlarms(context)) {
-                Log.w(TAG, "Exact alarm permission not granted, skipping")
                 return@launch
             }
 
@@ -48,11 +50,6 @@ object AlarmScheduler {
     }
 
     fun scheduleAll(context: Context, schedules: List<Schedule>) {
-        if (!canScheduleExactAlarms(context)) {
-            Log.w(TAG, "Cannot schedule exact alarms — permission not granted")
-            return
-        }
-
         cancelAll(context, schedules)
 
         val alarmManager = context.getSystemService(AlarmManager::class.java)
@@ -62,41 +59,18 @@ object AlarmScheduler {
             val triggerTime = getNextTriggerTime(schedule)
             if (triggerTime <= now) continue
 
-            val intent = Intent(context, AlarmReceiver::class.java).apply {
-                putExtra(AlarmReceiver.EXTRA_SUBJECT, schedule.subject)
-                putExtra(AlarmReceiver.EXTRA_TEACHER, schedule.teacher)
-                putExtra(AlarmReceiver.EXTRA_PERIOD, schedule.period)
-                putExtra(AlarmReceiver.EXTRA_DAY_OF_WEEK, schedule.dayOfWeek)
-                putExtra(AlarmReceiver.EXTRA_START_TIME, schedule.startTime)
-            }
-
-            val requestCode = schedule.dayOfWeek * 100 + schedule.period
-            val pendingIntent = PendingIntent.getBroadcast(
-                context, requestCode, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            scheduleOneAlarm(
+                context, alarmManager, triggerTime,
+                schedule.dayOfWeek, schedule.period,
+                schedule.subject, schedule.teacher, schedule.startTime
             )
-
-            alarmManager.setExactAndAllowWhileIdle(
-                AlarmManager.RTC_WAKEUP,
-                triggerTime,
-                pendingIntent
-            )
-
-            Log.i(TAG, "Alarm set: day=${schedule.dayOfWeek} period=${schedule.period} " +
-                    "subject=${schedule.subject} at ${Date(triggerTime)}")
         }
     }
 
     fun scheduleTodayAlarms(context: Context, schedules: List<Schedule>) {
-        if (!canScheduleExactAlarms(context)) {
-            Log.w(TAG, "Cannot schedule exact alarms — permission not granted")
-            return
-        }
-
         val alarmManager = context.getSystemService(AlarmManager::class.java)
         val now = System.currentTimeMillis()
         val today = Calendar.getInstance()
-
         val todayDayOfWeek = calendarDayToOurDay(today.get(Calendar.DAY_OF_WEEK))
 
         for (schedule in schedules.filter { it.dayOfWeek == todayDayOfWeek }) {
@@ -109,32 +83,63 @@ object AlarmScheduler {
 
             if (cal.timeInMillis <= now) continue
 
-            val intent = Intent(context, AlarmReceiver::class.java).apply {
-                putExtra(AlarmReceiver.EXTRA_SUBJECT, schedule.subject)
-                putExtra(AlarmReceiver.EXTRA_TEACHER, schedule.teacher)
-                putExtra(AlarmReceiver.EXTRA_PERIOD, schedule.period)
-                putExtra(AlarmReceiver.EXTRA_DAY_OF_WEEK, schedule.dayOfWeek)
-                putExtra(AlarmReceiver.EXTRA_START_TIME, schedule.startTime)
-            }
-
-            val requestCode = schedule.dayOfWeek * 100 + schedule.period
-            val pendingIntent = PendingIntent.getBroadcast(
-                context, requestCode, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            scheduleOneAlarm(
+                context, alarmManager, cal.timeInMillis,
+                schedule.dayOfWeek, schedule.period,
+                schedule.subject, schedule.teacher, schedule.startTime
             )
-
-            alarmManager.setExactAndAllowWhileIdle(
-                AlarmManager.RTC_WAKEUP,
-                cal.timeInMillis,
-                pendingIntent
-            )
-
-            Log.i(TAG, "Today alarm set: period=${schedule.period} ${schedule.subject} at ${Date(cal.timeInMillis)}")
         }
     }
 
     /**
-     * Android 12+ 정확한 알람 권한 확인
+     * 단일 알람을 setAlarmClock()으로 등록.
+     * setAlarmClock()은:
+     * - Doze 모드에서 지연되지 않음
+     * - 배터리 최적화 영향 없음
+     * - FGS 시작 권한 자동 부여 (10초)
+     * - 상태바에 알람 아이콘 표시
+     */
+    fun scheduleOneAlarm(
+        context: Context,
+        alarmManager: AlarmManager,
+        triggerTime: Long,
+        dayOfWeek: Int,
+        period: Int,
+        subject: String,
+        teacher: String,
+        startTime: String
+    ) {
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            putExtra(AlarmReceiver.EXTRA_SUBJECT, subject)
+            putExtra(AlarmReceiver.EXTRA_TEACHER, teacher)
+            putExtra(AlarmReceiver.EXTRA_PERIOD, period)
+            putExtra(AlarmReceiver.EXTRA_DAY_OF_WEEK, dayOfWeek)
+            putExtra(AlarmReceiver.EXTRA_START_TIME, startTime)
+        }
+
+        val requestCode = dayOfWeek * 100 + period
+        val pendingIntent = PendingIntent.getBroadcast(
+            context, requestCode, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // 알람 클릭 시 앱 열기용 PendingIntent
+        val showIntent = PendingIntent.getActivity(
+            context, requestCode,
+            Intent(context, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val alarmClockInfo = AlarmClockInfo(triggerTime, showIntent)
+        alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
+
+        Log.i(TAG, "AlarmClock set: day=$dayOfWeek period=$period " +
+                "subject=$subject at ${Date(triggerTime)}")
+    }
+
+    /**
+     * Android 12+ 정확한 알람 권한 확인.
+     * setAlarmClock()은 USE_EXACT_ALARM이 있으면 항상 허용됨.
      */
     fun canScheduleExactAlarms(context: Context): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

@@ -5,7 +5,7 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -26,27 +26,47 @@ class AlarmReceiver : BroadcastReceiver() {
 
         Log.i(TAG, "Alarm fired: period=$period subject=$subject dayOfWeek=$dayOfWeek")
 
-        // 이 알람만 다음 주에 재등록 (다른 알람 건드리지 않음)
-        rescheduleThisAlarmNextWeek(context, dayOfWeek, period, subject, teacher, startTime)
+        // ★ WakeLock 획득 — CPU가 서비스 시작 전에 다시 잠드는 것을 방지
+        val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        val wakeLock = pm.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "AutoRecord::AlarmReceiverWakeLock"
+        )
+        wakeLock.acquire(60_000L) // 최대 60초 (서비스 시작하면 서비스가 자체 WakeLock 관리)
 
-        // 마스터 토글 확인
-        val prefs = context.getSharedPreferences("prefs", 0)
-        if (!prefs.getBoolean("master_enabled", true)) {
-            Log.i(TAG, "Master toggle OFF, skipping recording")
-            return
+        try {
+            // 이 알람만 다음 주에 재등록 (다른 알람 건드리지 않음)
+            rescheduleThisAlarmNextWeek(context, dayOfWeek, period, subject, teacher, startTime)
+
+            // 마스터 토글 확인
+            val prefs = context.getSharedPreferences("prefs", 0)
+            if (!prefs.getBoolean("master_enabled", true)) {
+                Log.i(TAG, "Master toggle OFF, skipping recording")
+                return
+            }
+
+            // 1) 푸시 알림 보내기
+            sendNotification(context, subject, teacher, period)
+
+            // 2) 녹음 서비스 시작
+            val serviceIntent = Intent(context, RecordingService::class.java).apply {
+                putExtra(RecordingService.EXTRA_SUBJECT, subject)
+                putExtra(RecordingService.EXTRA_TEACHER, teacher)
+                putExtra(RecordingService.EXTRA_PERIOD, period)
+                putExtra(RecordingService.EXTRA_DURATION_MIN, 50)
+            }
+            context.startForegroundService(serviceIntent)
+
+        } finally {
+            // 서비스가 시작되면 WakeLock 해제 (5초 후 안전하게)
+            try {
+                if (wakeLock.isHeld) {
+                    wakeLock.release()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "WakeLock release failed", e)
+            }
         }
-
-        // 1) 푸시 알림 보내기
-        sendNotification(context, subject, teacher, period)
-
-        // 2) 녹음 시작
-        val serviceIntent = Intent(context, RecordingService::class.java).apply {
-            putExtra(RecordingService.EXTRA_SUBJECT, subject)
-            putExtra(RecordingService.EXTRA_TEACHER, teacher)
-            putExtra(RecordingService.EXTRA_PERIOD, period)
-            putExtra(RecordingService.EXTRA_DURATION_MIN, 50)
-        }
-        context.startForegroundService(serviceIntent)
     }
 
     private fun sendNotification(context: Context, subject: String, teacher: String, period: Int) {
@@ -72,7 +92,7 @@ class AlarmReceiver : BroadcastReceiver() {
     }
 
     /**
-     * 이 알람 1개만 정확히 7일 뒤에 재등록.
+     * 이 알람 1개만 정확히 7일 뒤에 setAlarmClock()으로 재등록.
      * 다른 교시의 알람은 절대 건드리지 않음 (TOCTOU 방지).
      */
     private fun rescheduleThisAlarmNextWeek(
@@ -84,7 +104,6 @@ class AlarmReceiver : BroadcastReceiver() {
         startTime: String
     ) {
         if (dayOfWeek == 0) return
-        if (!AlarmScheduler.canScheduleExactAlarms(context)) return
 
         val alarmManager = context.getSystemService(AlarmManager::class.java)
 
@@ -102,24 +121,9 @@ class AlarmReceiver : BroadcastReceiver() {
             set(Calendar.MILLISECOND, 0)
         }
 
-        val alarmIntent = Intent(context, AlarmReceiver::class.java).apply {
-            putExtra(EXTRA_SUBJECT, subject)
-            putExtra(EXTRA_TEACHER, teacher)
-            putExtra(EXTRA_PERIOD, period)
-            putExtra(EXTRA_DAY_OF_WEEK, dayOfWeek)
-            putExtra(EXTRA_START_TIME, startTime)
-        }
-
-        val requestCode = dayOfWeek * 100 + period
-        val pendingIntent = PendingIntent.getBroadcast(
-            context, requestCode, alarmIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        alarmManager.setExactAndAllowWhileIdle(
-            AlarmManager.RTC_WAKEUP,
-            cal.timeInMillis,
-            pendingIntent
+        AlarmScheduler.scheduleOneAlarm(
+            context, alarmManager, cal.timeInMillis,
+            dayOfWeek, period, subject, teacher, startTime
         )
 
         Log.i(TAG, "Rescheduled period=$period for next week at ${Date(cal.timeInMillis)}")

@@ -1,6 +1,6 @@
 {
-  "versionCode": 5,
-  "versionName": "1.4.0",
-  "apkUrl": "https://github.com/4ndrxxs/auto-record/releases/download/v1.4.0/AutoRecord-1.4.0.apk",
-  "changelog": "크리티컬 버그 8건 수정\nAndroid 11+ 스토리지 호환성 수정\n동시 녹음 방지\n알람 TOCTOU 수정\nMediaRecorder 에러 리스너 추가"
+  "versionCode": 6,
+  "versionName": "1.5.0",
+  "apkUrl": "https://github.com/4ndrxxs/auto-record/releases/download/v1.5.0/AutoRecord-1.5.0.apk",
+  "changelog": "setAlarmClock()으로 변경 — Doze 모드에서도 정확한 시간에 녹음\nWakeLock 추가 — 서비스 시작 전 CPU 슬립 방지\n백그라운드/포그라운드/앱 종료 모든 상태에서 정확한 시간 녹음"
 }

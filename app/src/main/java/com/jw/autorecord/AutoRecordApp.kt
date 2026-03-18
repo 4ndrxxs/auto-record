@@ -15,18 +15,31 @@ class AutoRecordApp : Application() {
     }
 
     private fun createNotificationChannels() {
-        val channel = NotificationChannel(
+        val manager = getSystemService(NotificationManager::class.java)
+
+        // 녹음 진행 중 (조용한 ongoing 알림)
+        val recordingChannel = NotificationChannel(
             RECORDING_CHANNEL_ID,
             getString(R.string.recording_channel_name),
             NotificationManager.IMPORTANCE_LOW
         ).apply {
             description = getString(R.string.recording_channel_desc)
         }
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(channel)
+        manager.createNotificationChannel(recordingChannel)
+
+        // 녹음 시작 알림 (푸시 알림)
+        val alertChannel = NotificationChannel(
+            ALERT_CHANNEL_ID,
+            getString(R.string.alert_channel_name),
+            NotificationManager.IMPORTANCE_DEFAULT
+        ).apply {
+            description = getString(R.string.alert_channel_desc)
+        }
+        manager.createNotificationChannel(alertChannel)
     }
 
     companion object {
         const val RECORDING_CHANNEL_ID = "recording_channel"
+        const val ALERT_CHANNEL_ID = "alert_channel"
     }
 }

@@ -3,4 +3,6 @@
     <string name="app_name">자동녹음</string>
     <string name="recording_channel_name">녹음 진행</string>
     <string name="recording_channel_desc">수업 녹음 진행 상태</string>
+    <string name="alert_channel_name">녹음 알림</string>
+    <string name="alert_channel_desc">녹음 시작 전 알림</string>
 </resources>

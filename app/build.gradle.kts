@@ -9,17 +9,27 @@ android {
     namespace = "com.jw.autorecord"
     compileSdk = 35
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("autorecord.jks")
+            storePassword = "autorecord123"
+            keyAlias = "autorecord"
+            keyPassword = "autorecord123"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.jw.autorecord"
         minSdk = 29
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.9.0"
+        versionCode = 11
+        versionName = "1.9.1"
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

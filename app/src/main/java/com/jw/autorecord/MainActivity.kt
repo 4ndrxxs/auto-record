@@ -89,8 +89,10 @@ class MainActivity : ComponentActivity() {
 
                             // Update dialog
                             updateInfo?.let { info ->
+                                var isDownloading by remember { mutableStateOf(false) }
+
                                 AlertDialog(
-                                    onDismissRequest = { updateInfo = null },
+                                    onDismissRequest = { if (!isDownloading) updateInfo = null },
                                     title = { Text("업데이트 가능") },
                                     text = {
                                         Column {
@@ -99,19 +101,35 @@ class MainActivity : ComponentActivity() {
                                                 Spacer(Modifier.height(8.dp))
                                                 Text(info.changelog)
                                             }
+                                            if (isDownloading) {
+                                                Spacer(Modifier.height(12.dp))
+                                                LinearProgressIndicator(
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                                Spacer(Modifier.height(4.dp))
+                                                Text(
+                                                    "다운로드 중... 완료되면 자동으로 설치 화면이 열립니다.",
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                            }
                                         }
                                     },
                                     confirmButton = {
-                                        TextButton(onClick = {
-                                            OtaUpdater.downloadAndInstall(this@MainActivity, info)
-                                            updateInfo = null
-                                        }) {
-                                            Text("다운로드")
+                                        TextButton(
+                                            onClick = {
+                                                isDownloading = true
+                                                OtaUpdater.downloadAndInstall(this@MainActivity, info)
+                                            },
+                                            enabled = !isDownloading
+                                        ) {
+                                            Text(if (isDownloading) "다운로드 중..." else "업데이트")
                                         }
                                     },
                                     dismissButton = {
-                                        TextButton(onClick = { updateInfo = null }) {
-                                            Text("나중에")
+                                        if (!isDownloading) {
+                                            TextButton(onClick = { updateInfo = null }) {
+                                                Text("나중에")
+                                            }
                                         }
                                     }
                                 )

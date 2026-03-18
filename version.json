@@ -1,6 +1,6 @@
 {
-  "versionCode": 10,
-  "versionName": "1.9.0",
-  "apkUrl": "https://github.com/4ndrxxs/auto-record/releases/download/v1.9.0/AutoRecord-1.9.0.apk",
-  "changelog": "특정 날짜 시간표 변경 기능\n달력에서 날짜 길게 눌러 시간표 수정\n교시 변경/취소/추가 지원\n홈화면에 변경된 시간표 반영\n7일 지난 override 자동 정리"
+  "versionCode": 11,
+  "versionName": "1.9.1",
+  "apkUrl": "https://github.com/4ndrxxs/auto-record/releases/download/v1.9.1/AutoRecord-1.9.1.apk",
+  "changelog": "APK 서명 추가 (설치 오류 수정)\nOTA 업데이트 시 자동 설치 화면 실행\n다운로드 진행 상태 표시\n시간표 변경 기능 포함"
 }

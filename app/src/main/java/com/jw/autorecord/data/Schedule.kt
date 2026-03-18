@@ -12,11 +12,18 @@ data class Schedule(
     val subject: String,
     val teacher: String
 ) {
-    val startHour: Int get() = startTime.split(":")[0].toInt()
-    val startMinute: Int get() = startTime.split(":")[1].toInt()
+    val startHour: Int get() = try {
+        startTime.split(":").getOrNull(0)?.toIntOrNull() ?: 0
+    } catch (_: Exception) { 0 }
+
+    val startMinute: Int get() = try {
+        startTime.split(":").getOrNull(1)?.toIntOrNull() ?: 0
+    } catch (_: Exception) { 0 }
 
     fun toFileName(dateStr: String): String {
-        return "${dateStr}_${period}교시_${subject}_${teacher}.m4a"
+        val safeSubject = subject.replace(Regex("[/\\\\:*?\"<>|\\x00]"), "_")
+        val safeTeacher = teacher.replace(Regex("[/\\\\:*?\"<>|\\x00]"), "_")
+        return "${dateStr}_${period}교시_${safeSubject}_${safeTeacher}.m4a"
     }
 
     companion object {

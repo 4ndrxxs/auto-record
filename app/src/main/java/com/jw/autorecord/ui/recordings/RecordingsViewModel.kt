@@ -2,8 +2,8 @@ package com.jw.autorecord.ui.recordings
 
 import android.app.Application
 import android.media.MediaPlayer
-import android.os.Environment
 import androidx.lifecycle.AndroidViewModel
+import com.jw.autorecord.util.StoragePaths
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
@@ -12,7 +12,7 @@ data class RecordingDate(val dirName: String, val displayName: String)
 data class RecordingFile(val file: File, val name: String)
 
 class RecordingsViewModel(app: Application) : AndroidViewModel(app) {
-    private val baseDir = File(Environment.getExternalStorageDirectory(), "AutoRecord")
+    private val baseDir = StoragePaths.getBaseDir(app)
 
     private val _dates = MutableStateFlow<List<RecordingDate>>(emptyList())
     val dates: StateFlow<List<RecordingDate>> = _dates

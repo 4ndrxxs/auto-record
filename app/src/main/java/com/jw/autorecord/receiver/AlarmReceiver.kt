@@ -1,5 +1,6 @@
 package com.jw.autorecord.receiver
 
+import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -10,13 +11,9 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.jw.autorecord.AutoRecordApp
 import com.jw.autorecord.MainActivity
-import com.jw.autorecord.R
-import com.jw.autorecord.data.AppDatabase
 import com.jw.autorecord.service.AlarmScheduler
 import com.jw.autorecord.service.RecordingService
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import java.util.*
 
 class AlarmReceiver : BroadcastReceiver() {
 
@@ -25,14 +22,17 @@ class AlarmReceiver : BroadcastReceiver() {
         val teacher = intent.getStringExtra(EXTRA_TEACHER) ?: return
         val period = intent.getIntExtra(EXTRA_PERIOD, 0)
         val dayOfWeek = intent.getIntExtra(EXTRA_DAY_OF_WEEK, 0)
+        val startTime = intent.getStringExtra(EXTRA_START_TIME) ?: ""
 
-        Log.i("AlarmReceiver", "Alarm fired: period=$period subject=$subject")
+        Log.i(TAG, "Alarm fired: period=$period subject=$subject dayOfWeek=$dayOfWeek")
+
+        // 이 알람만 다음 주에 재등록 (다른 알람 건드리지 않음)
+        rescheduleThisAlarmNextWeek(context, dayOfWeek, period, subject, teacher, startTime)
 
         // 마스터 토글 확인
         val prefs = context.getSharedPreferences("prefs", 0)
         if (!prefs.getBoolean("master_enabled", true)) {
-            Log.i("AlarmReceiver", "Master toggle OFF, skipping recording")
-            rescheduleNextWeek(context, dayOfWeek)
+            Log.i(TAG, "Master toggle OFF, skipping recording")
             return
         }
 
@@ -47,9 +47,6 @@ class AlarmReceiver : BroadcastReceiver() {
             putExtra(RecordingService.EXTRA_DURATION_MIN, 50)
         }
         context.startForegroundService(serviceIntent)
-
-        // 3) 다음 주 같은 시간에 알람 다시 등록
-        rescheduleNextWeek(context, dayOfWeek)
     }
 
     private fun sendNotification(context: Context, subject: String, teacher: String, period: Int) {
@@ -70,31 +67,71 @@ class AlarmReceiver : BroadcastReceiver() {
         try {
             NotificationManagerCompat.from(context).notify(ALERT_NOTIFICATION_ID + period, notification)
         } catch (e: SecurityException) {
-            Log.w("AlarmReceiver", "Notification permission not granted", e)
+            Log.w(TAG, "Notification permission not granted", e)
         }
     }
 
-    private fun rescheduleNextWeek(context: Context, dayOfWeek: Int) {
+    /**
+     * 이 알람 1개만 정확히 7일 뒤에 재등록.
+     * 다른 교시의 알람은 절대 건드리지 않음 (TOCTOU 방지).
+     */
+    private fun rescheduleThisAlarmNextWeek(
+        context: Context,
+        dayOfWeek: Int,
+        period: Int,
+        subject: String,
+        teacher: String,
+        startTime: String
+    ) {
         if (dayOfWeek == 0) return
+        if (!AlarmScheduler.canScheduleExactAlarms(context)) return
 
-        val pendingResult = goAsync()
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val db = AppDatabase.getInstance(context)
-                val schedules = db.scheduleDao().getSchedulesByDayOnce(dayOfWeek)
-                AlarmScheduler.scheduleAll(context, schedules)
-                Log.i("AlarmReceiver", "Rescheduled ${schedules.size} alarms for dayOfWeek=$dayOfWeek")
-            } finally {
-                pendingResult.finish()
-            }
+        val alarmManager = context.getSystemService(AlarmManager::class.java)
+
+        // startTime에서 시/분 파싱
+        val parts = startTime.split(":")
+        val hour = parts.getOrNull(0)?.toIntOrNull() ?: return
+        val minute = parts.getOrNull(1)?.toIntOrNull() ?: return
+
+        // 정확히 7일 뒤 같은 시간
+        val cal = Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, 7)
+            set(Calendar.HOUR_OF_DAY, hour)
+            set(Calendar.MINUTE, minute)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
         }
+
+        val alarmIntent = Intent(context, AlarmReceiver::class.java).apply {
+            putExtra(EXTRA_SUBJECT, subject)
+            putExtra(EXTRA_TEACHER, teacher)
+            putExtra(EXTRA_PERIOD, period)
+            putExtra(EXTRA_DAY_OF_WEEK, dayOfWeek)
+            putExtra(EXTRA_START_TIME, startTime)
+        }
+
+        val requestCode = dayOfWeek * 100 + period
+        val pendingIntent = PendingIntent.getBroadcast(
+            context, requestCode, alarmIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        alarmManager.setExactAndAllowWhileIdle(
+            AlarmManager.RTC_WAKEUP,
+            cal.timeInMillis,
+            pendingIntent
+        )
+
+        Log.i(TAG, "Rescheduled period=$period for next week at ${Date(cal.timeInMillis)}")
     }
 
     companion object {
+        const val TAG = "AlarmReceiver"
         const val EXTRA_SUBJECT = "extra_subject"
         const val EXTRA_TEACHER = "extra_teacher"
         const val EXTRA_PERIOD = "extra_period"
         const val EXTRA_DAY_OF_WEEK = "extra_day_of_week"
+        const val EXTRA_START_TIME = "extra_start_time"
         const val ALERT_NOTIFICATION_ID = 2000
     }
 }

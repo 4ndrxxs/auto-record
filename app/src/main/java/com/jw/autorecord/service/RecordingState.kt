@@ -3,6 +3,7 @@ package com.jw.autorecord.service
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update as atomicUpdate
 
 /**
  * 녹음 상태를 앱 전체에서 관찰할 수 있는 싱글톤.
@@ -53,7 +54,7 @@ object RecordingState {
     val state: StateFlow<State> = _state.asStateFlow()
 
     fun update(block: State.() -> State) {
-        _state.value = _state.value.block()
+        _state.atomicUpdate { it.block() }
     }
 
     fun reset() {

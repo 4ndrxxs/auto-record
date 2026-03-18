@@ -5,12 +5,12 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.media.MediaRecorder
-import android.os.Environment
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.jw.autorecord.AutoRecordApp
 import com.jw.autorecord.MainActivity
+import com.jw.autorecord.util.StoragePaths
 import kotlinx.coroutines.*
 import java.io.File
 import java.text.SimpleDateFormat
@@ -28,6 +28,12 @@ class RecordingService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // 동시 녹음 방지
+        if (RecordingState.state.value.isRecording) {
+            Log.w(TAG, "Already recording period ${RecordingState.state.value.period}, ignoring")
+            return START_NOT_STICKY
+        }
+
         val subject = intent?.getStringExtra(EXTRA_SUBJECT) ?: "Unknown"
         val teacher = intent?.getStringExtra(EXTRA_TEACHER) ?: "Unknown"
         val period = intent?.getIntExtra(EXTRA_PERIOD, 0) ?: 0
@@ -36,7 +42,8 @@ class RecordingService : Service() {
         startForeground(NOTIFICATION_ID, createNotification(subject, period, "시작 중..."))
         startRecording(subject, teacher, period, durationMin)
 
-        return START_NOT_STICKY
+        // 서비스가 죽으면 인텐트 재전달 → 녹음 재시작
+        return START_REDELIVER_INTENT
     }
 
     private fun createNotification(subject: String, period: Int, status: String): Notification {
@@ -63,13 +70,12 @@ class RecordingService : Service() {
         val dateStr = dateFormat.format(now)
         val dateDirStr = dateDirFormat.format(now)
 
-        val baseDir = File(
-            Environment.getExternalStorageDirectory(),
-            "AutoRecord/$dateDirStr"
-        )
-        baseDir.mkdirs()
+        // 앱 전용 외부 저장소 사용 (권한 불필요, Android 11+ 호환)
+        val baseDir = StoragePaths.getDateDir(this, dateDirStr)
 
-        val fileName = "${dateStr}_${period}교시_${subject}_${teacher}.m4a"
+        val safeSubject = StoragePaths.sanitizeFileName(subject)
+        val safeTeacher = StoragePaths.sanitizeFileName(teacher)
+        val fileName = "${dateStr}_${period}교시_${safeSubject}_${safeTeacher}.m4a"
         outputFile = File(baseDir, fileName)
 
         try {
@@ -80,13 +86,25 @@ class RecordingService : Service() {
                 setAudioEncodingBitRate(128000)
                 setAudioSamplingRate(44100)
                 setOutputFile(outputFile!!.absolutePath)
+
+                // 녹음 중 에러 발생 시 자동 종료
+                setOnErrorListener { _, what, extra ->
+                    Log.e(TAG, "MediaRecorder error: what=$what extra=$extra")
+                    scope.launch(Dispatchers.Main) { stopRecordingAndService() }
+                }
+                setOnInfoListener { _, what, _ ->
+                    if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED) {
+                        Log.w(TAG, "Max file size reached")
+                        scope.launch(Dispatchers.Main) { stopRecordingAndService() }
+                    }
+                }
+
                 prepare()
                 start()
             }
             recordingStartTime = System.currentTimeMillis()
-            Log.i(TAG, "Recording started: $fileName")
+            Log.i(TAG, "Recording started: $fileName at ${outputFile!!.absolutePath}")
 
-            // 녹음 상태 초기화
             RecordingState.update {
                 copy(
                     isRecording = true,
@@ -102,7 +120,7 @@ class RecordingService : Service() {
                 )
             }
 
-            // 매초 상태 업데이트 (경과시간, 파일크기, 마이크 세기)
+            // 매초 상태 업데이트
             tickerJob = scope.launch {
                 while (isActive) {
                     delay(1000L)
@@ -120,7 +138,6 @@ class RecordingService : Service() {
                         )
                     }
 
-                    // 알림도 업데이트
                     val notifManager = getSystemService(android.app.NotificationManager::class.java)
                     val min = elapsed / 60
                     val sec = elapsed % 60
@@ -138,17 +155,21 @@ class RecordingService : Service() {
             // 녹음 종료 타이머
             recordingJob = scope.launch {
                 delay(durationMin * 60 * 1000L)
-                stopRecordingAndService()
+                withContext(Dispatchers.Main) {
+                    stopRecordingAndService()
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start recording", e)
             RecordingState.reset()
+            stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
     }
 
     private fun stopRecordingAndService() {
         tickerJob?.cancel()
+        recordingJob?.cancel()
         try {
             mediaRecorder?.apply {
                 stop()

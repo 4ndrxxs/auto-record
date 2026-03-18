@@ -67,6 +67,7 @@ object AlarmScheduler {
                 putExtra(AlarmReceiver.EXTRA_TEACHER, schedule.teacher)
                 putExtra(AlarmReceiver.EXTRA_PERIOD, schedule.period)
                 putExtra(AlarmReceiver.EXTRA_DAY_OF_WEEK, schedule.dayOfWeek)
+                putExtra(AlarmReceiver.EXTRA_START_TIME, schedule.startTime)
             }
 
             val requestCode = schedule.dayOfWeek * 100 + schedule.period
@@ -113,6 +114,7 @@ object AlarmScheduler {
                 putExtra(AlarmReceiver.EXTRA_TEACHER, schedule.teacher)
                 putExtra(AlarmReceiver.EXTRA_PERIOD, schedule.period)
                 putExtra(AlarmReceiver.EXTRA_DAY_OF_WEEK, schedule.dayOfWeek)
+                putExtra(AlarmReceiver.EXTRA_START_TIME, schedule.startTime)
             }
 
             val requestCode = schedule.dayOfWeek * 100 + schedule.period

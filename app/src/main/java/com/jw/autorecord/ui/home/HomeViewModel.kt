@@ -1,16 +1,15 @@
 package com.jw.autorecord.ui.home
 
 import android.app.Application
-import android.os.Environment
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.jw.autorecord.AutoRecordApp
 import com.jw.autorecord.data.Schedule
 import com.jw.autorecord.service.AlarmScheduler
 import com.jw.autorecord.service.RecordingState
+import com.jw.autorecord.util.StoragePaths
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -64,10 +63,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshRecordedFiles() {
         val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.KOREA)
-        val todayDir = File(
-            Environment.getExternalStorageDirectory(),
-            "AutoRecord/${dateFormat.format(Date())}"
-        )
+        val todayDir = StoragePaths.getDateDir(getApplication(), dateFormat.format(Date()))
         _recordedFiles.value = if (todayDir.exists()) {
             todayDir.listFiles()?.map { it.name }?.sorted() ?: emptyList()
         } else emptyList()

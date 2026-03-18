@@ -13,6 +13,7 @@ object RecordingState {
 
     data class State(
         val isRecording: Boolean = false,
+        val isPaused: Boolean = false,
         val period: Int = -1,
         val subject: String = "",
         val teacher: String = "",

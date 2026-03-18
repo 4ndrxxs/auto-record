@@ -1,6 +1,6 @@
 {
-  "versionCode": 8,
-  "versionName": "1.7.0",
-  "apkUrl": "https://github.com/4ndrxxs/auto-record/releases/download/v1.7.0/AutoRecord-1.7.0.apk",
-  "changelog": "RecordingService 제거 → MonitorService 안에서 직접 녹음\nAndroid 12+ 백그라운드 서비스 시작 제한 완전 우회\n감시+녹음 단일 서비스 통합"
+  "versionCode": 9,
+  "versionName": "1.8.0",
+  "apkUrl": "https://github.com/4ndrxxs/auto-record/releases/download/v1.8.0/AutoRecord-1.8.0.apk",
+  "changelog": "뮤직 플레이어 (배속/시크바/앞뒤 이동)\n달력 탭 (녹음 있는 날 표시)\n녹음 일시정지/강제중지\nON/OFF 토글 색상 수정\n날짜별 파일 수 표시"
 }

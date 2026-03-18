@@ -52,6 +52,8 @@ class ScheduleMonitorService : Service() {
     private var tickerJob: Job? = null
     private var outputFile: File? = null
     private var recordingStartTime: Long = 0L
+    private var pausedElapsedSeconds: Long = 0L  // 일시정지 시점 경과 시간
+    private var isPaused: Boolean = false
 
     private val checkRunnable = object : Runnable {
         override fun run() {
@@ -76,7 +78,14 @@ class ScheduleMonitorService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.i(TAG, "ScheduleMonitorService started")
+        Log.i(TAG, "ScheduleMonitorService started, action=${intent?.action}")
+
+        // 녹음 조작 액션 처리
+        when (intent?.action) {
+            ACTION_PAUSE -> { pauseRecording(); return START_STICKY }
+            ACTION_RESUME -> { resumeRecording(); return START_STICKY }
+            ACTION_STOP -> { stopRecording(); return START_STICKY }
+        }
 
         val notification = createIdleNotification()
 
@@ -226,9 +235,16 @@ class ScheduleMonitorService : Service() {
             tickerJob = scope.launch {
                 while (isActive) {
                     delay(1000L)
-                    val elapsed = (System.currentTimeMillis() - recordingStartTime) / 1000
+
+                    // 일시정지 중이면 경과 시간 멈춤
+                    val elapsed = if (isPaused) {
+                        pausedElapsedSeconds
+                    } else {
+                        (System.currentTimeMillis() - recordingStartTime) / 1000
+                    }
+
                     val fileSize = outputFile?.length() ?: 0L
-                    val amplitude = try {
+                    val amplitude = if (isPaused) 0 else try {
                         mediaRecorder?.maxAmplitude ?: 0
                     } catch (_: Exception) { 0 }
 
@@ -276,6 +292,8 @@ class ScheduleMonitorService : Service() {
         tickerJob = null
         recordingJob?.cancel()
         recordingJob = null
+        isPaused = false
+        pausedElapsedSeconds = 0L
 
         try {
             mediaRecorder?.apply {
@@ -291,6 +309,42 @@ class ScheduleMonitorService : Service() {
 
         // 대기 모드로 알림 복귀
         updateNotification("자동녹음", "자동녹음 대기 중")
+    }
+
+    private fun pauseRecording() {
+        if (!RecordingState.state.value.isRecording || isPaused) return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                mediaRecorder?.pause()
+            }
+            isPaused = true
+            pausedElapsedSeconds = RecordingState.state.value.elapsedSeconds
+            RecordingState.update { copy(isPaused = true) }
+            updateNotification("⏸ 녹음 일시정지", "${RecordingState.state.value.period}교시 ${RecordingState.state.value.subject}")
+            Log.i(TAG, "Recording paused")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to pause", e)
+        }
+    }
+
+    private fun resumeRecording() {
+        if (!RecordingState.state.value.isRecording || !isPaused) return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                mediaRecorder?.resume()
+            }
+            isPaused = false
+            // 재개 시점 기준으로 시작 시간 재계산
+            recordingStartTime = System.currentTimeMillis() - (pausedElapsedSeconds * 1000)
+            RecordingState.update { copy(isPaused = false) }
+            updateNotification(
+                "🔴 ${RecordingState.state.value.period}교시 ${RecordingState.state.value.subject} 녹음 중",
+                "재개됨"
+            )
+            Log.i(TAG, "Recording resumed")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to resume", e)
+        }
     }
 
     // ═══════════════════════════════════════════
@@ -388,9 +442,20 @@ class ScheduleMonitorService : Service() {
         const val ALERT_NOTIFICATION_ID = 2000
         const val CHECK_INTERVAL_MS = 30_000L
 
+        const val ACTION_PAUSE = "com.jw.autorecord.PAUSE"
+        const val ACTION_RESUME = "com.jw.autorecord.RESUME"
+        const val ACTION_STOP = "com.jw.autorecord.STOP"
+
         fun start(context: Context) {
             val intent = Intent(context, ScheduleMonitorService::class.java)
             context.startForegroundService(intent)
+        }
+
+        fun sendAction(context: Context, action: String) {
+            val intent = Intent(context, ScheduleMonitorService::class.java).apply {
+                this.action = action
+            }
+            context.startService(intent)
         }
     }
 }

@@ -28,7 +28,15 @@ class AlarmReceiver : BroadcastReceiver() {
 
         Log.i("AlarmReceiver", "Alarm fired: period=$period subject=$subject")
 
-        // 1) 푸시 알림 보내기 (조용한 알림)
+        // 마스터 토글 확인
+        val prefs = context.getSharedPreferences("prefs", 0)
+        if (!prefs.getBoolean("master_enabled", true)) {
+            Log.i("AlarmReceiver", "Master toggle OFF, skipping recording")
+            rescheduleNextWeek(context, dayOfWeek)
+            return
+        }
+
+        // 1) 푸시 알림 보내기
         sendNotification(context, subject, teacher, period)
 
         // 2) 녹음 시작

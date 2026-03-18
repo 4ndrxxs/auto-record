@@ -4,15 +4,55 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.util.Log
+import com.jw.autorecord.data.AppDatabase
 import com.jw.autorecord.data.Schedule
 import com.jw.autorecord.receiver.AlarmReceiver
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.util.*
 
 object AlarmScheduler {
     private const val TAG = "AlarmScheduler"
 
+    /**
+     * 앱 시작 시 호출 — DB에서 모든 시간표를 읽어 알람 등록
+     */
+    fun registerAllOnStartup(context: Context) {
+        CoroutineScope(Dispatchers.IO).launch {
+            val prefs = context.getSharedPreferences("prefs", 0)
+            if (!prefs.getBoolean("master_enabled", true)) {
+                Log.i(TAG, "Master toggle OFF, skipping alarm registration")
+                return@launch
+            }
+
+            if (!canScheduleExactAlarms(context)) {
+                Log.w(TAG, "Exact alarm permission not granted, skipping")
+                return@launch
+            }
+
+            val db = AppDatabase.getInstance(context)
+            val all = mutableListOf<Schedule>()
+            for (day in 1..5) {
+                all.addAll(db.scheduleDao().getSchedulesByDayOnce(day))
+            }
+            if (all.isEmpty()) {
+                Log.i(TAG, "No schedules found, skipping")
+                return@launch
+            }
+            scheduleAll(context, all)
+            Log.i(TAG, "Registered ${all.size} alarms on startup")
+        }
+    }
+
     fun scheduleAll(context: Context, schedules: List<Schedule>) {
+        if (!canScheduleExactAlarms(context)) {
+            Log.w(TAG, "Cannot schedule exact alarms — permission not granted")
+            return
+        }
+
         cancelAll(context, schedules)
 
         val alarmManager = context.getSystemService(AlarmManager::class.java)
@@ -47,6 +87,11 @@ object AlarmScheduler {
     }
 
     fun scheduleTodayAlarms(context: Context, schedules: List<Schedule>) {
+        if (!canScheduleExactAlarms(context)) {
+            Log.w(TAG, "Cannot schedule exact alarms — permission not granted")
+            return
+        }
+
         val alarmManager = context.getSystemService(AlarmManager::class.java)
         val now = System.currentTimeMillis()
         val today = Calendar.getInstance()
@@ -84,6 +129,17 @@ object AlarmScheduler {
 
             Log.i(TAG, "Today alarm set: period=${schedule.period} ${schedule.subject} at ${Date(cal.timeInMillis)}")
         }
+    }
+
+    /**
+     * Android 12+ 정확한 알람 권한 확인
+     */
+    fun canScheduleExactAlarms(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val alarmManager = context.getSystemService(AlarmManager::class.java)
+            return alarmManager.canScheduleExactAlarms()
+        }
+        return true
     }
 
     private fun getNextTriggerTime(schedule: Schedule): Long {

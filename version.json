@@ -1,6 +1,6 @@
 {
-  "versionCode": 2,
-  "versionName": "1.1.0",
-  "apkUrl": "https://github.com/4ndrxxs/auto-record/releases/download/v1.1.0/AutoRecord-1.1.0.apk",
-  "changelog": "녹음 시작 시 푸시 알림 추가\n알람 매주 자동 재등록\n배터리 최적화 예외 요청 추가"
+  "versionCode": 3,
+  "versionName": "1.2.0",
+  "apkUrl": "https://github.com/4ndrxxs/auto-record/releases/download/v1.2.0/AutoRecord-1.2.0.apk",
+  "changelog": "알람 자동 등록 수정\n정확한 알람 권한 요청 추가\n앱 시작 시 알람 자동 재등록\n마스터 토글 OFF 시 녹음 차단"
 }

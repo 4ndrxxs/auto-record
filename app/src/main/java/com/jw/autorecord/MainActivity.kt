@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.jw.autorecord.service.AlarmScheduler
 import com.jw.autorecord.ui.navigation.AppNavigation
 import com.jw.autorecord.ui.theme.AutoRecordTheme
 import com.jw.autorecord.updater.OtaUpdater
@@ -57,6 +58,10 @@ class MainActivity : ComponentActivity() {
         }
 
         requestBatteryOptimizationExemption()
+        requestExactAlarmPermission()
+
+        // 앱 시작할 때마다 알람 재등록
+        AlarmScheduler.registerAllOnStartup(this)
 
         setContent {
             AutoRecordTheme {
@@ -135,6 +140,17 @@ class MainActivity : ComponentActivity() {
                 data = Uri.parse("package:$packageName")
             }
             startActivity(intent)
+        }
+    }
+
+    private fun requestExactAlarmPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (!AlarmScheduler.canScheduleExactAlarms(this)) {
+                val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+            }
         }
     }
 }

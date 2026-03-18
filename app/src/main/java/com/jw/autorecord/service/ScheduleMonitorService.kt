@@ -6,6 +6,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.MediaRecorder
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -18,16 +19,23 @@ import com.jw.autorecord.AutoRecordApp
 import com.jw.autorecord.MainActivity
 import com.jw.autorecord.data.AppDatabase
 import com.jw.autorecord.data.Schedule
+import com.jw.autorecord.util.StoragePaths
 import kotlinx.coroutines.*
+import java.io.File
+import java.text.SimpleDateFormat
 import java.util.*
 
 /**
- * 24시간 상시 실행되는 감시 서비스.
- * 30초마다 현재 시간이 시간표와 일치하는지 체크.
- * 일치하면 RecordingService를 시작.
+ * 24시간 상시 실행 + 직접 녹음하는 단일 서비스.
  *
- * AlarmManager 대신 사용 — OEM 배터리 최적화에 영향받지 않음.
- * START_STICKY → 시스템이 죽여도 자동 재시작.
+ * 왜 하나의 서비스인가?
+ * Android 12+는 백그라운드에서 새 Foreground Service 시작을 제한한다.
+ * MonitorService → startForegroundService(RecordingService) 가 지연/차단됨.
+ * 하나의 서비스에서 감시+녹음을 모두 처리하면 이 제한을 완전히 우회.
+ *
+ * foregroundServiceType="microphone|specialUse"
+ *   - specialUse: 상시 감시
+ *   - microphone: 녹음 시 마이크 접근
  */
 class ScheduleMonitorService : Service() {
 
@@ -35,9 +43,15 @@ class ScheduleMonitorService : Service() {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var wakeLock: PowerManager.WakeLock? = null
 
-    // 이미 녹음 트리거한 교시를 기록 (같은 교시 중복 시작 방지)
-    // key = "dayOfWeek_period_dateStr" (예: "3_2_2026-03-18")
+    // ── 감시 관련 ──
     private val triggeredToday = mutableSetOf<String>()
+
+    // ── 녹음 관련 ──
+    private var mediaRecorder: MediaRecorder? = null
+    private var recordingJob: Job? = null
+    private var tickerJob: Job? = null
+    private var outputFile: File? = null
+    private var recordingStartTime: Long = 0L
 
     private val checkRunnable = object : Runnable {
         override fun run() {
@@ -52,51 +66,52 @@ class ScheduleMonitorService : Service() {
         super.onCreate()
         Log.i(TAG, "ScheduleMonitorService created")
 
-        // WakeLock 획득 — CPU가 슬립해도 서비스 유지
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
             "AutoRecord::MonitorWakeLock"
         ).apply {
-            acquire() // 무기한 (서비스가 살아있는 동안)
+            acquire()
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i(TAG, "ScheduleMonitorService started")
 
-        val notification = createMonitorNotification("자동녹음 대기 중")
+        val notification = createIdleNotification()
 
+        // ★ microphone + specialUse 타입으로 시작 — 녹음할 때 별도 서비스 불필요
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(
-                MONITOR_NOTIFICATION_ID, notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                NOTIFICATION_ID, notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
             )
         } else {
-            startForeground(MONITOR_NOTIFICATION_ID, notification)
+            startForeground(NOTIFICATION_ID, notification)
         }
 
-        // 날짜가 바뀌면 triggered 기록 초기화
         clearTriggeredIfNewDay()
 
-        // 30초마다 체크 시작
         handler.removeCallbacks(checkRunnable)
         handler.post(checkRunnable)
 
-        // 시스템이 죽여도 자동 재시작
         return START_STICKY
     }
+
+    // ═══════════════════════════════════════════
+    // 감시 로직
+    // ═══════════════════════════════════════════
 
     private fun checkScheduleNow() {
         val prefs = getSharedPreferences("prefs", 0)
         if (!prefs.getBoolean("master_enabled", true)) return
 
-        // 이미 녹음 중이면 스킵
         if (RecordingState.state.value.isRecording) return
 
         val now = Calendar.getInstance()
         val dayOfWeek = AlarmScheduler.calendarDayToOurDay(now.get(Calendar.DAY_OF_WEEK))
-        if (dayOfWeek == 0) return // 주말
+        if (dayOfWeek == 0) return
 
         val currentHour = now.get(Calendar.HOUR_OF_DAY)
         val currentMinute = now.get(Calendar.MINUTE)
@@ -107,7 +122,6 @@ class ScheduleMonitorService : Service() {
             now.get(Calendar.DAY_OF_MONTH)
         )
 
-        // 날짜 바뀌면 초기화
         clearTriggeredIfNewDay()
 
         scope.launch {
@@ -117,40 +131,19 @@ class ScheduleMonitorService : Service() {
 
                 for (schedule in schedules) {
                     val triggerKey = "${dayOfWeek}_${schedule.period}_$dateStr"
-
-                    // 이미 이 교시 트리거했으면 스킵
                     if (triggerKey in triggeredToday) continue
 
-                    // 시간 체크: 정확히 같은 시/분이거나, 1분 이내 지났을 때
                     if (isTimeToRecord(currentHour, currentMinute, schedule.startHour, schedule.startMinute)) {
                         triggeredToday.add(triggerKey)
 
-                        Log.i(TAG, "★ Time matched! Starting recording: " +
-                                "period=${schedule.period} subject=${schedule.subject} " +
-                                "at $currentHour:$currentMinute (scheduled ${schedule.startTime})")
+                        Log.i(TAG, "★ Time matched! period=${schedule.period} " +
+                                "subject=${schedule.subject} at $currentHour:$currentMinute")
 
                         withContext(Dispatchers.Main) {
-                            // 푸시 알림
                             sendRecordingAlert(schedule)
-
-                            // 녹음 시작
-                            val serviceIntent = Intent(
-                                this@ScheduleMonitorService,
-                                RecordingService::class.java
-                            ).apply {
-                                putExtra(RecordingService.EXTRA_SUBJECT, schedule.subject)
-                                putExtra(RecordingService.EXTRA_TEACHER, schedule.teacher)
-                                putExtra(RecordingService.EXTRA_PERIOD, schedule.period)
-                                putExtra(RecordingService.EXTRA_DURATION_MIN, 50)
-                            }
-                            startForegroundService(serviceIntent)
-
-                            // 모니터 알림 업데이트
-                            updateMonitorNotification(
-                                "${schedule.period}교시 ${schedule.subject} 녹음 시작됨"
-                            )
+                            startRecordingDirectly(schedule)
                         }
-                        break // 한번에 하나만 시작
+                        break
                     }
                 }
             } catch (e: Exception) {
@@ -159,9 +152,6 @@ class ScheduleMonitorService : Service() {
         }
     }
 
-    /**
-     * 현재 시간이 예정 시간과 일치하는지 (1분 이내 허용)
-     */
     private fun isTimeToRecord(
         currentHour: Int, currentMinute: Int,
         scheduleHour: Int, scheduleMinute: Int
@@ -169,9 +159,143 @@ class ScheduleMonitorService : Service() {
         val currentTotal = currentHour * 60 + currentMinute
         val scheduleTotal = scheduleHour * 60 + scheduleMinute
         val diff = currentTotal - scheduleTotal
-        // 정확히 같거나 1분 지났을 때 (30초 체크 간격이므로 놓치지 않음)
         return diff in 0..1
     }
+
+    // ═══════════════════════════════════════════
+    // 녹음 로직 (RecordingService에서 이관)
+    // ═══════════════════════════════════════════
+
+    private fun startRecordingDirectly(schedule: Schedule) {
+        if (RecordingState.state.value.isRecording) {
+            Log.w(TAG, "Already recording, ignoring")
+            return
+        }
+
+        val dateFormat = SimpleDateFormat("yyyyMMdd", Locale.KOREA)
+        val dateDirFormat = SimpleDateFormat("yyyy-MM-dd", Locale.KOREA)
+        val now = Date()
+
+        val dateStr = dateFormat.format(now)
+        val dateDirStr = dateDirFormat.format(now)
+        val durationMin = 50
+
+        val baseDir = StoragePaths.getDateDir(this, dateDirStr)
+        val safeSubject = StoragePaths.sanitizeFileName(schedule.subject)
+        val safeTeacher = StoragePaths.sanitizeFileName(schedule.teacher)
+        val fileName = "${dateStr}_${schedule.period}교시_${safeSubject}_${safeTeacher}.m4a"
+        outputFile = File(baseDir, fileName)
+
+        try {
+            mediaRecorder = MediaRecorder(this).apply {
+                setAudioSource(MediaRecorder.AudioSource.MIC)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setAudioEncodingBitRate(128000)
+                setAudioSamplingRate(44100)
+                setOutputFile(outputFile!!.absolutePath)
+                setOnErrorListener { _, what, extra ->
+                    Log.e(TAG, "MediaRecorder error: what=$what extra=$extra")
+                    handler.post { stopRecording() }
+                }
+                prepare()
+                start()
+            }
+            recordingStartTime = System.currentTimeMillis()
+            Log.i(TAG, "★ Recording started: $fileName")
+
+            // 알림 업데이트: 녹음 중 표시
+            updateNotification("🔴 ${schedule.period}교시 ${schedule.subject} 녹음 중", "시작 중...")
+
+            RecordingState.update {
+                copy(
+                    isRecording = true,
+                    period = schedule.period,
+                    subject = schedule.subject,
+                    teacher = schedule.teacher,
+                    startTimeMillis = recordingStartTime,
+                    durationMin = durationMin,
+                    elapsedSeconds = 0,
+                    filePath = outputFile!!.absolutePath,
+                    fileSizeBytes = 0,
+                    amplitudeDb = 0
+                )
+            }
+
+            // 매초 상태 업데이트 + 알림 업데이트
+            tickerJob = scope.launch {
+                while (isActive) {
+                    delay(1000L)
+                    val elapsed = (System.currentTimeMillis() - recordingStartTime) / 1000
+                    val fileSize = outputFile?.length() ?: 0L
+                    val amplitude = try {
+                        mediaRecorder?.maxAmplitude ?: 0
+                    } catch (_: Exception) { 0 }
+
+                    RecordingState.update {
+                        copy(
+                            elapsedSeconds = elapsed,
+                            fileSizeBytes = fileSize,
+                            amplitudeDb = amplitude
+                        )
+                    }
+
+                    // 알림 업데이트
+                    val min = elapsed / 60
+                    val sec = elapsed % 60
+                    val status = "%02d:%02d / %d분 | %s".format(
+                        min, sec, durationMin,
+                        RecordingState.state.value.fileSizeFormatted()
+                    )
+                    withContext(Dispatchers.Main) {
+                        updateNotification(
+                            "🔴 ${schedule.period}교시 ${schedule.subject} 녹음 중",
+                            status
+                        )
+                    }
+                }
+            }
+
+            // 50분 후 자동 종료
+            recordingJob = scope.launch {
+                delay(durationMin * 60 * 1000L)
+                withContext(Dispatchers.Main) {
+                    stopRecording()
+                }
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start recording", e)
+            RecordingState.reset()
+            updateNotification("자동녹음", "녹음 시작 실패: ${e.message}")
+        }
+    }
+
+    private fun stopRecording() {
+        tickerJob?.cancel()
+        tickerJob = null
+        recordingJob?.cancel()
+        recordingJob = null
+
+        try {
+            mediaRecorder?.apply {
+                stop()
+                release()
+            }
+            Log.i(TAG, "★ Recording stopped: ${outputFile?.name}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping recording", e)
+        }
+        mediaRecorder = null
+        RecordingState.reset()
+
+        // 대기 모드로 알림 복귀
+        updateNotification("자동녹음", "자동녹음 대기 중")
+    }
+
+    // ═══════════════════════════════════════════
+    // 알림
+    // ═══════════════════════════════════════════
 
     private fun sendRecordingAlert(schedule: Schedule) {
         val tapIntent = Intent(this, MainActivity::class.java)
@@ -196,7 +320,7 @@ class ScheduleMonitorService : Service() {
         }
     }
 
-    private fun createMonitorNotification(text: String): Notification {
+    private fun createIdleNotification(): Notification {
         val tapIntent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this, 0, tapIntent,
@@ -206,17 +330,31 @@ class ScheduleMonitorService : Service() {
         return NotificationCompat.Builder(this, AutoRecordApp.MONITOR_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle("자동녹음")
-            .setContentText(text)
+            .setContentText("자동녹음 대기 중")
             .setOngoing(true)
             .setSilent(true)
             .setContentIntent(pendingIntent)
             .build()
     }
 
-    private fun updateMonitorNotification(text: String) {
+    private fun updateNotification(title: String, text: String) {
+        val tapIntent = Intent(this, MainActivity::class.java)
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, tapIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(this, AutoRecordApp.MONITOR_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setOngoing(true)
+            .setSilent(true)
+            .setContentIntent(pendingIntent)
+            .build()
+
         try {
-            NotificationManagerCompat.from(this)
-                .notify(MONITOR_NOTIFICATION_ID, createMonitorNotification(text))
+            NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, notification)
         } catch (_: SecurityException) {}
     }
 
@@ -227,13 +365,16 @@ class ScheduleMonitorService : Service() {
             today.get(Calendar.MONTH) + 1,
             today.get(Calendar.DAY_OF_MONTH)
         )
-        // 다른 날짜의 기록이 있으면 전부 지우기
         triggeredToday.removeAll { !it.endsWith(dateStr) }
     }
 
     override fun onDestroy() {
         Log.w(TAG, "ScheduleMonitorService destroyed — will be restarted by START_STICKY")
         handler.removeCallbacks(checkRunnable)
+
+        // 녹음 중이었다면 정리
+        stopRecording()
+
         scope.cancel()
         try {
             wakeLock?.let { if (it.isHeld) it.release() }
@@ -243,9 +384,9 @@ class ScheduleMonitorService : Service() {
 
     companion object {
         const val TAG = "ScheduleMonitor"
-        const val MONITOR_NOTIFICATION_ID = 1002
+        const val NOTIFICATION_ID = 1001
         const val ALERT_NOTIFICATION_ID = 2000
-        const val CHECK_INTERVAL_MS = 30_000L // 30초
+        const val CHECK_INTERVAL_MS = 30_000L
 
         fun start(context: Context) {
             val intent = Intent(context, ScheduleMonitorService::class.java)

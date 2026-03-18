@@ -30,21 +30,15 @@
             </intent-filter>
         </activity>
 
-        <!-- 상시 감시 서비스 (30초마다 시간표 체크) -->
+        <!-- 상시 감시 + 녹음 통합 서비스 -->
         <service
             android:name=".service.ScheduleMonitorService"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="microphone|specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Continuous schedule monitoring for automatic class recording" />
+                android:value="Continuous schedule monitoring and automatic class recording" />
         </service>
-
-        <!-- 녹음 서비스 -->
-        <service
-            android:name=".service.RecordingService"
-            android:exported="false"
-            android:foregroundServiceType="microphone" />
 
         <!-- 부팅 시 감시 서비스 자동 시작 -->
         <receiver

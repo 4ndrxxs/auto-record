@@ -1,6 +1,6 @@
 {
-  "versionCode": 7,
-  "versionName": "1.6.0",
-  "apkUrl": "https://github.com/4ndrxxs/auto-record/releases/download/v1.6.0/AutoRecord-1.6.0.apk",
-  "changelog": "AlarmManager 완전 제거 → 상시 감시 서비스로 교체\n30초마다 시간표 체크 → 100% 확실한 녹음 시작\nDoze/배터리 최적화/OEM 킬러 전부 무시"
+  "versionCode": 8,
+  "versionName": "1.7.0",
+  "apkUrl": "https://github.com/4ndrxxs/auto-record/releases/download/v1.7.0/AutoRecord-1.7.0.apk",
+  "changelog": "RecordingService 제거 → MonitorService 안에서 직접 녹음\nAndroid 12+ 백그라운드 서비스 시작 제한 완전 우회\n감시+녹음 단일 서비스 통합"
 }

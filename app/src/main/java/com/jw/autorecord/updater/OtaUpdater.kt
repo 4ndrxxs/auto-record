@@ -25,7 +25,7 @@ object OtaUpdater {
     private const val TAG = "OtaUpdater"
 
     // GitHub raw URL for version.json - user should set their own repo
-    private const val VERSION_URL = "https://raw.githubusercontent.com/YOUR_GITHUB/auto-record/main/version.json"
+    private const val VERSION_URL = "https://raw.githubusercontent.com/4ndrxxs/auto-record/master/version.json"
 
     private val client = OkHttpClient()
 

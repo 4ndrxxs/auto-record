@@ -1,7 +1,9 @@
 package com.jw.autorecord.ui.calendar
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -24,26 +26,56 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.util.*
 
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun CalendarScreen(viewModel: CalendarViewModel = viewModel()) {
     val currentMonth by viewModel.currentMonth.collectAsState()
     val recordedDates by viewModel.recordedDates.collectAsState()
+    val overrideDates by viewModel.overrideDates.collectAsState()
     val selectedDate by viewModel.selectedDate.collectAsState()
     val selectedDateFiles by viewModel.selectedDateFiles.collectAsState()
+
+    // Override 편집 시트 상태
+    val editingDate by viewModel.editingDate.collectAsState()
+    val baseSchedules by viewModel.baseSchedulesForEdit.collectAsState()
+    val overridesForEdit by viewModel.overridesForEdit.collectAsState()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
     ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "녹음 달력",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.weight(1f)
+            )
+            // 범례
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+                Spacer(Modifier.width(3.dp))
+                Text("녹음", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(8.dp))
+                Box(Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFFFA726)))
+                Spacer(Modifier.width(3.dp))
+                Text("변경", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+
+        Spacer(Modifier.height(4.dp))
         Text(
-            "녹음 달력",
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground
+            "길게 눌러서 시간표 변경",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
         )
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
 
         // 월 이동 헤더
         Row(
@@ -55,10 +87,6 @@ fun CalendarScreen(viewModel: CalendarViewModel = viewModel()) {
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "이전 달")
             }
 
-            val cal = Calendar.getInstance().apply {
-                set(Calendar.YEAR, currentMonth.first)
-                set(Calendar.MONTH, currentMonth.second - 1)
-            }
             Text(
                 "${currentMonth.first}년 ${currentMonth.second}월",
                 fontSize = 18.sp,
@@ -97,6 +125,7 @@ fun CalendarScreen(viewModel: CalendarViewModel = viewModel()) {
         // 달력 그리드
         val days = viewModel.getMonthDays(currentMonth.first, currentMonth.second)
         val weeks = days.chunked(7)
+        val overrideDateSet = overrideDates.toSet()
 
         weeks.forEach { week ->
             Row(modifier = Modifier.fillMaxWidth()) {
@@ -109,7 +138,10 @@ fun CalendarScreen(viewModel: CalendarViewModel = viewModel()) {
                             .clip(RoundedCornerShape(8.dp))
                             .then(
                                 if (day != null) {
-                                    Modifier.clickable { viewModel.selectDate(day) }
+                                    Modifier.combinedClickable(
+                                        onClick = { viewModel.selectDate(day) },
+                                        onLongClick = { viewModel.openOverrideEditor(day) }
+                                    )
                                 } else Modifier
                             )
                             .then(
@@ -120,6 +152,10 @@ fun CalendarScreen(viewModel: CalendarViewModel = viewModel()) {
                         contentAlignment = Alignment.Center
                     ) {
                         if (day != null) {
+                            val dateStr = "%04d-%02d-%02d".format(day.first, day.second, day.third)
+                            val hasRecording = dateStr in recordedDates
+                            val hasOverride = dateStr in overrideDateSet
+
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 val isToday = viewModel.isToday(day)
                                 Text(
@@ -129,16 +165,30 @@ fun CalendarScreen(viewModel: CalendarViewModel = viewModel()) {
                                     color = if (isToday) MaterialTheme.colorScheme.primary
                                     else MaterialTheme.colorScheme.onSurface
                                 )
-                                // 녹음 있으면 빨간 점
-                                val dateStr = "%04d-%02d-%02d".format(day.first, day.second, day.third)
-                                if (dateStr in recordedDates) {
-                                    Spacer(Modifier.height(2.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.primary)
-                                    )
+                                // 점 표시: 녹음(파랑) + override(주황)
+                                Row(
+                                    horizontalArrangement = Arrangement.Center,
+                                    modifier = Modifier.height(8.dp)
+                                ) {
+                                    if (hasRecording) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.primary)
+                                        )
+                                    }
+                                    if (hasRecording && hasOverride) {
+                                        Spacer(Modifier.width(2.dp))
+                                    }
+                                    if (hasOverride) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFFFFA726))
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -199,5 +249,17 @@ fun CalendarScreen(viewModel: CalendarViewModel = viewModel()) {
                 }
             }
         }
+    }
+
+    // ★ Override 편집 바텀시트
+    if (editingDate != null) {
+        OverrideEditSheet(
+            dateStr = editingDate!!,
+            baseSchedules = baseSchedules,
+            existingOverrides = overridesForEdit,
+            onSave = { viewModel.saveOverride(it) },
+            onDelete = { date, period -> viewModel.deleteOverride(date, period) },
+            onDismiss = { viewModel.closeOverrideEditor() }
+        )
     }
 }

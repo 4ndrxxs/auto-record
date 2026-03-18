@@ -1,6 +1,6 @@
 {
-  "versionCode": 9,
-  "versionName": "1.8.0",
-  "apkUrl": "https://github.com/4ndrxxs/auto-record/releases/download/v1.8.0/AutoRecord-1.8.0.apk",
-  "changelog": "뮤직 플레이어 (배속/시크바/앞뒤 이동)\n달력 탭 (녹음 있는 날 표시)\n녹음 일시정지/강제중지\nON/OFF 토글 색상 수정\n날짜별 파일 수 표시"
+  "versionCode": 10,
+  "versionName": "1.9.0",
+  "apkUrl": "https://github.com/4ndrxxs/auto-record/releases/download/v1.9.0/AutoRecord-1.9.0.apk",
+  "changelog": "특정 날짜 시간표 변경 기능\n달력에서 날짜 길게 눌러 시간표 수정\n교시 변경/취소/추가 지원\n홈화면에 변경된 시간표 반영\n7일 지난 override 자동 정리"
 }

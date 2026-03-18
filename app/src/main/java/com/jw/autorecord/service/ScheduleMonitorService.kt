@@ -19,6 +19,7 @@ import com.jw.autorecord.AutoRecordApp
 import com.jw.autorecord.MainActivity
 import com.jw.autorecord.data.AppDatabase
 import com.jw.autorecord.data.Schedule
+import com.jw.autorecord.data.ScheduleOverride
 import com.jw.autorecord.util.StoragePaths
 import kotlinx.coroutines.*
 import java.io.File
@@ -136,9 +137,13 @@ class ScheduleMonitorService : Service() {
         scope.launch {
             try {
                 val db = AppDatabase.getInstance(this@ScheduleMonitorService)
-                val schedules = db.scheduleDao().getSchedulesByDayOnce(dayOfWeek)
+                val overrides = db.scheduleOverrideDao().getOverridesByDateOnce(dateStr)
+                val baseSchedules = db.scheduleDao().getSchedulesByDayOnce(dayOfWeek)
 
-                for (schedule in schedules) {
+                // ★ Override 우선 병합: 오늘의 최종 시간표 생성
+                val effectiveSchedules = buildEffectiveSchedules(baseSchedules, overrides, dayOfWeek)
+
+                for (schedule in effectiveSchedules) {
                     val triggerKey = "${dayOfWeek}_${schedule.period}_$dateStr"
                     if (triggerKey in triggeredToday) continue
 
@@ -159,6 +164,49 @@ class ScheduleMonitorService : Service() {
                 Log.e(TAG, "Error checking schedule", e)
             }
         }
+    }
+
+    /**
+     * 기본 시간표 + override를 병합하여 오늘의 최종 시간표를 생성.
+     * - CANCEL override → 해당 교시 제거
+     * - CHANGE override → 해당 교시 대체
+     * - ADD override → 새 교시 추가
+     */
+    private fun buildEffectiveSchedules(
+        baseSchedules: List<Schedule>,
+        overrides: List<ScheduleOverride>,
+        dayOfWeek: Int
+    ): List<Schedule> {
+        val overrideMap = overrides.associateBy { it.period }
+        val result = mutableListOf<Schedule>()
+
+        // 기본 시간표 순회: override 적용
+        for (base in baseSchedules) {
+            val override = overrideMap[base.period]
+            when {
+                override == null -> result.add(base) // override 없음 → 기본 사용
+                override.type == ScheduleOverride.TYPE_CANCEL -> {
+                    Log.i(TAG, "Period ${base.period} cancelled by override")
+                    // 스킵 (녹음 안 함)
+                }
+                else -> {
+                    // CHANGE: override 데이터로 대체 (시간은 override에 있으면 사용, 없으면 기본)
+                    result.add(override.toSchedule(dayOfWeek, base.startTime))
+                    Log.i(TAG, "Period ${base.period} overridden: ${override.subject}")
+                }
+            }
+        }
+
+        // ADD 타입: 기본 시간표에 없는 교시 추가
+        val existingPeriods = baseSchedules.map { it.period }.toSet()
+        for (override in overrides) {
+            if (override.type == ScheduleOverride.TYPE_ADD && override.period !in existingPeriods) {
+                result.add(override.toSchedule(dayOfWeek))
+                Log.i(TAG, "Period ${override.period} added by override: ${override.subject}")
+            }
+        }
+
+        return result.sortedBy { it.period }
     }
 
     private fun isTimeToRecord(

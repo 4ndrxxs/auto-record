@@ -32,6 +32,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
     val masterEnabled by viewModel.masterEnabled.collectAsState()
     val recState by viewModel.recordingState.collectAsState()
     val recordedFiles by viewModel.recordedFiles.collectAsState()
+    val hasOverrides by viewModel.hasOverridesToday.collectAsState()
 
     val today = remember {
         val cal = java.util.Calendar.getInstance()
@@ -57,11 +58,26 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
                 )
-                Text(
-                    today,
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        today,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (hasOverrides) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "변경됨",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFFFFA726),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(Color(0xFFFFA726).copy(alpha = 0.15f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
             }
 
             // ★ ON/OFF 토글 — 확실히 구분되는 색상

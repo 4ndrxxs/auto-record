@@ -11,10 +11,11 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file("autorecord.jks")
-            storePassword = "autorecord123"
-            keyAlias = "autorecord"
-            keyPassword = "autorecord123"
+            // debug keystore로 서명 — 기존 앱 위에 덮어쓰기 설치 가능 (DB 유지)
+            storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
         }
     }
 

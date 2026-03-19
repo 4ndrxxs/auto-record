@@ -2,6 +2,7 @@ package com.jw.autorecord.ui.home
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -114,7 +115,13 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
 
         if (schedules.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("시간표를 먼저 설정해주세요", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 16.sp)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("시간표를 먼저 설정해주세요", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 16.sp)
+                    if (!recState.isRecording) {
+                        Spacer(Modifier.height(16.dp))
+                        ManualRecordButton()
+                    }
+                }
             }
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -126,9 +133,98 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                         recState = recState
                     )
                 }
+
+                // ★ 수동 녹음 시작 버튼 (녹음 중이 아닐 때만)
+                if (!recState.isRecording) {
+                    item {
+                        Spacer(Modifier.height(8.dp))
+                        ManualRecordButton()
+                    }
+                }
             }
         }
     }
+}
+
+@Composable
+private fun ManualRecordButton() {
+    val context = LocalContext.current
+    var showDialog by remember { mutableStateOf(false) }
+
+    OutlinedButton(
+        onClick = { showDialog = true },
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = ButtonDefaults.outlinedButtonColors(
+            contentColor = Color(0xFF4CAF50)
+        )
+    ) {
+        Icon(Icons.Default.Mic, null, Modifier.size(20.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("수동 녹음 시작", fontWeight = FontWeight.Medium)
+    }
+
+    if (showDialog) {
+        ManualRecordDialog(
+            onDismiss = { showDialog = false },
+            onStart = { period, subject, teacher ->
+                ScheduleMonitorService.startManualRecording(context, period, subject, teacher)
+                showDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+private fun ManualRecordDialog(
+    onDismiss: () -> Unit,
+    onStart: (period: Int, subject: String, teacher: String) -> Unit
+) {
+    var subject by remember { mutableStateOf("") }
+    var teacher by remember { mutableStateOf("") }
+    var periodText by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("수동 녹음") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("녹음 정보를 입력하세요 (비워도 됩니다)", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedTextField(
+                    value = subject,
+                    onValueChange = { subject = it },
+                    label = { Text("과목명") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = teacher,
+                    onValueChange = { teacher = it },
+                    label = { Text("선생님") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = periodText,
+                    onValueChange = { periodText = it.filter { c -> c.isDigit() } },
+                    label = { Text("교시 (선택)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val period = periodText.toIntOrNull() ?: 0
+                onStart(period, subject.ifBlank { "수동녹음" }, teacher)
+            }) {
+                Text("녹음 시작", color = Color(0xFF4CAF50), fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("취소") }
+        }
+    )
 }
 
 @Composable
@@ -322,8 +418,19 @@ private fun DetailItem(icon: androidx.compose.ui.graphics.vector.ImageVector, la
 
 @Composable
 private fun ScheduleCard(schedule: Schedule, isRecording: Boolean, isRecorded: Boolean, recState: RecordingState.State) {
+    val context = LocalContext.current
+    var showManualConfirm by remember { mutableStateOf(false) }
+
+    // ★ 대기 중인 교시를 탭하면 수동 녹음 시작 확인
+    val canManualStart = !isRecording && !isRecorded && !recState.isRecording
+
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (canManualStart) Modifier.clickable { showManualConfirm = true }
+                else Modifier
+            ),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = when {
@@ -383,10 +490,36 @@ private fun ScheduleCard(schedule: Schedule, isRecording: Boolean, isRecorded: B
                     }
                     else -> {
                         Icon(Icons.Default.Schedule, "대기", tint = Color.Gray, modifier = Modifier.size(20.dp))
-                        Text("대기", fontSize = 10.sp, color = Color.Gray)
+                        Text(
+                            if (canManualStart) "탭하여 시작" else "대기",
+                            fontSize = 10.sp,
+                            color = if (canManualStart) Color(0xFF4CAF50) else Color.Gray
+                        )
                     }
                 }
             }
         }
+    }
+
+    // ★ 수동 녹음 시작 확인 다이얼로그
+    if (showManualConfirm) {
+        AlertDialog(
+            onDismissRequest = { showManualConfirm = false },
+            title = { Text("수동 녹음 시작") },
+            text = {
+                Text("${schedule.period}교시 ${schedule.subject} (${schedule.teacher}) 녹음을 시작하시겠습니까?")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    ScheduleMonitorService.startManualRecording(
+                        context, schedule.period, schedule.subject, schedule.teacher
+                    )
+                    showManualConfirm = false
+                }) { Text("녹음 시작", color = Color(0xFF4CAF50), fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showManualConfirm = false }) { Text("취소") }
+            }
+        )
     }
 }

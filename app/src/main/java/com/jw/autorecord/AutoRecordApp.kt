@@ -37,11 +37,11 @@ class AutoRecordApp : Application() {
         }
         manager.createNotificationChannel(alertChannel)
 
-        // 상시 감시 서비스 (최소 중요도 — 소리/진동 없음)
+        // 상시 감시 서비스 (LOW 중요도 — 소리/진동 없이 항상 표시)
         val monitorChannel = NotificationChannel(
             MONITOR_CHANNEL_ID,
             getString(R.string.monitor_channel_name),
-            NotificationManager.IMPORTANCE_MIN
+            NotificationManager.IMPORTANCE_LOW
         ).apply {
             description = getString(R.string.monitor_channel_desc)
             setShowBadge(false)

@@ -1,5 +1,6 @@
 package com.jw.autorecord.service
 
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.PendingIntent
 import android.app.Service
@@ -12,6 +13,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -86,6 +88,22 @@ class ScheduleMonitorService : Service() {
             ACTION_PAUSE -> { pauseRecording(); return START_STICKY }
             ACTION_RESUME -> { resumeRecording(); return START_STICKY }
             ACTION_STOP -> { stopRecording(); return START_STICKY }
+            ACTION_MANUAL_START -> {
+                val period = intent.getIntExtra("period", -1)
+                val subject = intent.getStringExtra("subject") ?: "수동녹음"
+                val teacher = intent.getStringExtra("teacher") ?: ""
+                val schedule = Schedule(
+                    dayOfWeek = AlarmScheduler.calendarDayToOurDay(
+                        Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
+                    ),
+                    period = if (period > 0) period else 0,
+                    subject = subject,
+                    teacher = teacher,
+                    startTime = SimpleDateFormat("HH:mm", Locale.KOREA).format(Date())
+                )
+                startRecordingDirectly(schedule)
+                return START_STICKY
+            }
         }
 
         val notification = createIdleNotification()
@@ -453,17 +471,45 @@ class ScheduleMonitorService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(this, AutoRecordApp.MONITOR_CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, AutoRecordApp.MONITOR_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle(title)
             .setContentText(text)
             .setOngoing(true)
             .setSilent(true)
             .setContentIntent(pendingIntent)
-            .build()
+
+        // ★ 녹음 중일 때 알림에 일시정지/중지 버튼 추가
+        if (RecordingState.state.value.isRecording) {
+            if (RecordingState.state.value.isPaused) {
+                val resumeIntent = Intent(this, ScheduleMonitorService::class.java).apply {
+                    action = ACTION_RESUME
+                }
+                val resumePi = PendingIntent.getService(
+                    this, 1, resumeIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                builder.addAction(android.R.drawable.ic_media_play, "재개", resumePi)
+            } else {
+                val pauseIntent = Intent(this, ScheduleMonitorService::class.java).apply {
+                    action = ACTION_PAUSE
+                }
+                val pausePi = PendingIntent.getService(
+                    this, 2, pauseIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                builder.addAction(android.R.drawable.ic_media_pause, "일시정지", pausePi)
+            }
+
+            val stopIntent = Intent(this, ScheduleMonitorService::class.java).apply {
+                action = ACTION_STOP
+            }
+            val stopPi = PendingIntent.getService(
+                this, 3, stopIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.addAction(android.R.drawable.ic_delete, "중지", stopPi)
+        }
 
         try {
-            NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, notification)
+            NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, builder.build())
         } catch (_: SecurityException) {}
     }
 
@@ -477,12 +523,26 @@ class ScheduleMonitorService : Service() {
         triggeredToday.removeAll { !it.endsWith(dateStr) }
     }
 
+    /**
+     * ★ 사용자가 최근 앱 목록에서 앱을 제거했을 때 호출됨.
+     * stopWithTask="false" 이므로 서비스는 즉시 죽지 않고 이 콜백을 받음.
+     * 여기서 AlarmManager로 1초 후 서비스 재시작을 예약.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        Log.w(TAG, "★ Task removed (swiped from recents) — scheduling restart")
+        scheduleRestart()
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
-        Log.w(TAG, "ScheduleMonitorService destroyed — will be restarted by START_STICKY")
+        Log.w(TAG, "ScheduleMonitorService destroyed — scheduling restart")
         handler.removeCallbacks(checkRunnable)
 
         // 녹음 중이었다면 정리
         stopRecording()
+
+        // ★ 서비스가 죽으면 1초 후 재시작 예약
+        scheduleRestart()
 
         scope.cancel()
         try {
@@ -491,15 +551,41 @@ class ScheduleMonitorService : Service() {
         super.onDestroy()
     }
 
+    /**
+     * AlarmManager를 통해 1초 후 서비스 재시작.
+     * START_STICKY만으로는 task 제거 시 재시작이 보장되지 않으므로
+     * AlarmManager를 백업으로 사용.
+     */
+    private fun scheduleRestart() {
+        try {
+            val restartIntent = Intent(this, ScheduleMonitorService::class.java)
+            val pendingIntent = PendingIntent.getForegroundService(
+                this, RESTART_REQUEST_CODE, restartIntent,
+                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            alarmManager.setExactAndAllowWhileIdle(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                SystemClock.elapsedRealtime() + 1000,
+                pendingIntent
+            )
+            Log.i(TAG, "Restart scheduled via AlarmManager in 1 second")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to schedule restart", e)
+        }
+    }
+
     companion object {
         const val TAG = "ScheduleMonitor"
         const val NOTIFICATION_ID = 1001
         const val ALERT_NOTIFICATION_ID = 2000
         const val CHECK_INTERVAL_MS = 30_000L
+        const val RESTART_REQUEST_CODE = 9999
 
         const val ACTION_PAUSE = "com.jw.autorecord.PAUSE"
         const val ACTION_RESUME = "com.jw.autorecord.RESUME"
         const val ACTION_STOP = "com.jw.autorecord.STOP"
+        const val ACTION_MANUAL_START = "com.jw.autorecord.MANUAL_START"
 
         fun start(context: Context) {
             val intent = Intent(context, ScheduleMonitorService::class.java)
@@ -509,6 +595,17 @@ class ScheduleMonitorService : Service() {
         fun sendAction(context: Context, action: String) {
             val intent = Intent(context, ScheduleMonitorService::class.java).apply {
                 this.action = action
+            }
+            context.startService(intent)
+        }
+
+        /** 수동 녹음 시작 */
+        fun startManualRecording(context: Context, period: Int, subject: String, teacher: String) {
+            val intent = Intent(context, ScheduleMonitorService::class.java).apply {
+                action = ACTION_MANUAL_START
+                putExtra("period", period)
+                putExtra("subject", subject)
+                putExtra("teacher", teacher)
             }
             context.startService(intent)
         }

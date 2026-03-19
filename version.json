@@ -1,6 +1,6 @@
 {
-  "versionCode": 12,
-  "versionName": "1.10.0",
-  "apkUrl": "https://github.com/4ndrxxs/auto-record/releases/download/v1.10.0/AutoRecord-1.10.0.apk",
-  "changelog": "설정 탭 추가\n시간표 백업/복원 (JSON)\n녹음 시간 설정 (30~90분)\n오디오 품질 설정 (비트레이트/샘플레이트)\n저장소 정보 표시\n녹음 파일 공유 기능\n전체 녹음 삭제 기능\n앱 정보 표시"
+  "versionCode": 13,
+  "versionName": "1.11.0",
+  "apkUrl": "https://github.com/4ndrxxs/auto-record/releases/download/v1.11.0/AutoRecord-1.11.0.apk",
+  "changelog": "최근 앱 목록에서 삭제해도 서비스 유지 (stopWithTask=false + AlarmManager 재시작)\n수동 녹음 시작/중지 기능 추가 (교시 탭 또는 수동 녹음 버튼)\n알림 항상 표시 (채널 중요도 LOW로 변경)\n알림에서 일시정지/중지 버튼 제공\n서비스 자동 복구 강화"
 }
